@@ -1,6 +1,6 @@
 module gitee.com/web3dev/web3_study/1_7_go
 
-go 1.20.2
+go 1.20
 
 require (
 	github.com/lxn/walk v0.0.0-20210112085537-c389da54e794 // indirect
