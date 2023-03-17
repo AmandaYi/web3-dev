@@ -27,4 +27,11 @@ func main() {
 	kernel区
 	*/
 
+	//栈的空间默认是1m，可以扩展到8m
+
+	//堆的默认空间是无限的，1G+
+	for {
+		var p *int = new(int)
+		fmt.Println(p)
+	}
 }
