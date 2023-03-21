@@ -24,9 +24,6 @@ func main() {
 	go User1()
 	go User2()
 
-	for {
-
-	}
 }
 
 func Printer(s string) {
