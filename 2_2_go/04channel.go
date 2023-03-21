@@ -23,7 +23,7 @@ func main() {
 
 	go User1()
 	go User2()
-
+	time.Sleep(time.Second * 30)
 }
 
 func Printer(s string) {
