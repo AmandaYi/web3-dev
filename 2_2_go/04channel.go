@@ -15,7 +15,7 @@ func main() {
 	//定义
 	_ = make(chan int)    // 无缓冲的channel
 	_ = make(chan int, 0) // 无缓冲的channel
-	_ = make(chan int, 1) // 有缓冲的channel
+	_ = make(chan int, 1) // 有缓冲的channel, 在存满之前，不会阻塞
 
 	//channel有两个端，一端：写端（传入端） chan <- xxx
 	//另一端：读端（传出端） xxx <- chan

@@ -11,16 +11,16 @@ var ReadTransport <-chan OrderInfo = storehouse           // 把仓库里面的�
 
 // 车间生成, 把东西放入仓库，需要传入只写通道
 var lineProduction = func(chan<- OrderInfo) {
-	for {
-
-	}
+	//for {
+	//
+	//}
 }
 
 // 货车拿货，把东西运输出去 应该传入只读通道
 var vehicleTransportation = func(<-chan OrderInfo) {
-	for {
-
-	}
+	//for {
+	//
+	//}
 }
 
 func main() {
