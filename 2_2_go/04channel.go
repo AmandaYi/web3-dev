@@ -17,6 +17,10 @@ func main() {
 	_ = make(chan int, 0) // 无缓冲的channel
 	_ = make(chan int, 1) // 有缓冲的channel, 在存满之前，不会阻塞
 
+	ch := make(chan int, 10)
+	fmt.Println("ch len = ", len(ch)) // 返回内部有多少已保存的数据，也就是大家常说的剩余未使用的数据个数 ch len =  0
+	fmt.Println("ch cap", cap(ch))    // 返回总的缓冲区大小 ch cap 10
+
 	//channel有两个端，一端：写端（传入端） chan <- xxx
 	//另一端：读端（传出端） xxx <- chan
 	//要求，读端和写端必须同时满足条件，才能在chan上进行数据流动，否则，则阻塞
