@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/lxn/walk"
 	"github.com/lxn/walk/declarative"
 )
@@ -48,5 +49,6 @@ func Show(WindowType string) {
 	win.ShowWindow()
 }
 func main() {
-	Show("main_window")
+	// Show("main_window")
+	fmt.Println("123")
 }
