@@ -2,3 +2,5 @@
 **/.vscode
 **/*.exe
 test
+**/go.sum
+mod_project.lnk
