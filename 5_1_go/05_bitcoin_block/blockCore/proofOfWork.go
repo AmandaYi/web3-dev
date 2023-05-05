@@ -1,4 +1,4 @@
-package main
+package blockCore
 
 import (
 	"bytes"
@@ -40,7 +40,7 @@ func NewProofOfWork(b *Block) *ProofOfWork {
 //工作量证明处理函数
 func (pow *ProofOfWork) Run() (hash []byte, nonce uint64) {
 	//得到当前区块
-	//b := pow.block
+	//b := pow.blockCore
 	//初始化一个nonce的值
 	nonce = 0
 	hash = []byte{}

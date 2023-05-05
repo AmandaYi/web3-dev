@@ -38,7 +38,10 @@ func (b *BlockChain) AddBlock(data string) {
 	// 保存data信息
 	newBlock.Data = []byte(data)
 	// 计算自己的Hash值
-	newBlock.SetHash()
+	//newBlock.SetHash()
+
+	//修改为通过系统计算得到比系统预设hash小的hash值，刚好可以得到nonce随机值
+	newBlock.Hash, newBlock.Nonce = NewProofOfWork(&newBlock).Run()
 	// 追加到区块链里面
 	b.Blocks = append(b.Blocks, &newBlock)
 }

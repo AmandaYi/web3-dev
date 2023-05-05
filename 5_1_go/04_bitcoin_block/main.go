@@ -1,6 +1,7 @@
 package main
 
 func main() {
+
 	blockChain := NewBlockChain()
 
 	blockChain.AddBlock("小明向小红转了一笔钱")

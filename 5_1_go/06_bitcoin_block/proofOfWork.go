@@ -40,7 +40,7 @@ func NewProofOfWork(b *Block) *ProofOfWork {
 //工作量证明处理函数
 func (pow *ProofOfWork) Run() (hash []byte, nonce uint64) {
 	//得到当前区块
-	//b := pow.block
+	//b := pow.blockCore
 	//初始化一个nonce的值
 	nonce = 0
 	hash = []byte{}
@@ -77,8 +77,18 @@ func (pow *ProofOfWork) Run() (hash []byte, nonce uint64) {
 //prepareData
 func (pow *ProofOfWork) prepareData(nonce uint64) []byte {
 	b := pow.block
+	//梅克尔根，等于交易体的hash值
+
+	b.MerKleRoot = b.SetTransactionsHash()
+
 	genesisInfoByte := [][]byte{
-		b.PreHash, b.Data, uint64ToByte(b.Version), b.MerKleRoot, uint64ToByte(b.TimeStamp), uint64ToByte(b.Difficulty), uint64ToByte(nonce),
+		b.PreHash,
+		//b.Data,
+		uint64ToByte(b.Version),
+		b.MerKleRoot,
+		uint64ToByte(b.TimeStamp),
+		uint64ToByte(b.Difficulty),
+		uint64ToByte(nonce),
 	}
 	return bytes.Join(genesisInfoByte, []byte{})
 }

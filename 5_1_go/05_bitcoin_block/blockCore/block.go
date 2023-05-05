@@ -1,9 +1,10 @@
-package main
+package blockCore
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"time"
 )
@@ -48,7 +49,7 @@ func NewBlock(data []byte, preHash []byte) *Block {
 		Nonce:      100,
 	}
 	// 设置自己的Hash值
-	//block.SetHash()
+	//blockCore.SetHash()
 
 	//修改为通过系统计算得到比系统预设hash小的hash值，刚好可以得到nonce随机值
 	block.Hash, block.Nonce = NewProofOfWork(&block).Run()
@@ -56,9 +57,10 @@ func NewBlock(data []byte, preHash []byte) *Block {
 }
 
 func (b *Block) PrintAll() {
-	fmt.Printf("preHash:%x\n", b.PreHash)
-	fmt.Printf("Hash:%x\n", b.Hash)
-	fmt.Println("Data:", string(b.Data))
+	fmt.Println("---STR---")
+	fmt.Printf("blockCore.PreHash: %x\n", b.PreHash)
+	fmt.Printf("blockCore.Data: %s\n", string(b.Data))
+	fmt.Println("---END---")
 }
 
 // SetHash
@@ -94,4 +96,40 @@ func uint64ToByte(num uint64) []byte {
 		panic(err)
 	}
 	return buffer.Bytes()
+}
+
+//区块序列化函数
+func (b *Block) Serialize() []byte {
+	//将block数据转换成字节流
+	var buffer bytes.Buffer
+	//创建一个序列化编码器
+	encoder := gob.NewEncoder(&buffer)
+	err := encoder.Encode(b)
+	if err != nil {
+		fmt.Println("编码失败", err)
+		panic(err)
+	}
+	return buffer.Bytes()
+}
+
+//区块反序列化函数
+func (b *Block) Deserialize(data []byte) Block {
+	var block Block
+	var buffer bytes.Buffer
+	//将data写入buffer
+	_, err := buffer.Write(data)
+	if err != nil {
+		fmt.Println("buffer写入失败", err)
+		panic(err)
+	}
+
+	//创建一个反序列化解码器，用于解码
+	decoder := gob.NewDecoder(&buffer)
+	//将buffer数据转换成block
+	err = decoder.Decode(&block)
+	if err != nil {
+		fmt.Println("解码失败", err)
+		panic(err)
+	}
+	return block
 }
