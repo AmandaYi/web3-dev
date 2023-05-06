@@ -41,6 +41,7 @@ func GenesisBlock(address string, data string, preHash []byte) *Block {
 	return NewBlock(txs, preHash)
 }
 func NewBlock(txs []*Transaction, preHash []byte) *Block {
+	//这里不需要验证交易，因为这是创世块，也是矿机池，在交易函数里面是直接通过的
 	var block = Block{
 		PreHash: preHash,
 		Hash:    []byte{},

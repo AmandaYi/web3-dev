@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
 )
@@ -109,6 +111,14 @@ func NewBlockChain(address string) *BlockChain {
 
 // 追加区块链数据
 func (b *BlockChain) AddBlock(tsx []*Transaction) {
+	// 这里验证交易
+	for _, tx := range tsx {
+		//fmt.Printf("矿机池:%d，结果%v\n",i,tx)
+		//fmt.Printf("矿机池:%d，结果%v\n",i,b.ValidTransaction(*tx))
+		if !b.ValidTransaction(*tx) {
+			panic("矿机池发现无效交易，验证失败")
+		}
+	}
 	//初始化块信息
 	var newBlock Block
 	//从数据库读出最后一个区块key的hash信息，作为自己的preHash值
@@ -126,7 +136,6 @@ func (b *BlockChain) AddBlock(tsx []*Transaction) {
 
 	// 保存交易体
 	newBlock.Transactions = tsx
-
 	//保存preHash值
 	newBlock.PreHash = lastHash
 
@@ -290,4 +299,68 @@ func (bc *BlockChain) FindTransactions(fromPublicKeyHash []byte) []*Transaction 
 
 	//	====
 	return txs
+}
+
+//签名函数由Transaction提供，但是签名动作由blockChain来实现，因为我们要遍历账本，
+//在SignTransaction内部再调用Sign函数
+
+//遍历账本，通过遍历账本的input，依次找到input所属的output所在的交易里面
+func (bc *BlockChain) SignTransaction(currentTX *Transaction, privateKey ecdsa.PrivateKey) {
+	//每一个交易创建后的最后签名
+	everyInputPrevTXs := make(map[string]Transaction)
+
+	//找到全部的交易，当前新建的交易体里面有多少个input，就遍历几遍，从而找到全部的input所引用的交易体
+	for _, input := range currentTX.TXInputs {
+		tmpPrevTX, err := bc.FindTransactionByInputTXid(input.TXID)
+		if err != nil {
+			panic(err)
+		}
+		everyInputPrevTXs[string(tmpPrevTX.TXID)] = tmpPrevTX
+	}
+	//进行签名
+	currentTX.Sign(privateKey, everyInputPrevTXs)
+}
+
+//寻找input引用的output，通过output找到对应的交易体，
+//在一个当前交易里面，可能有2个input引用的都是同一个交易的里面的output，所以可以用map结构存储所引用的交易体
+func (bc *BlockChain) FindTransactionByInputTXid(inputTXid []byte) (Transaction, error) {
+	//使用迭代器找到input所属的output的所在的交易体
+	it := NewBlockChainIterator(bc)
+	for {
+		block := it.Next()
+
+		//这里是通过id找交易体
+		for _, tx := range block.Transactions {
+			//有些是没有交易id的，比如挖矿的交易，所以无法比较
+			if bytes.Equal(tx.TXID, inputTXid) {
+				return *tx, nil
+			}
+		}
+		if len(block.PreHash) == 0 {
+			break
+		}
+	}
+	return Transaction{}, errors.New("无法通过给定的input的TXid找到对应的交易")
+}
+
+// 验证每一笔交易
+//找到所有引用的交易
+//1. 查找当前交易的input，有几个input就遍历几次
+//2. 找到input所对应的交易体
+//3. 形成map结构存储所有的input交易
+//最后调用验证函数验证每一个交易
+//根据id查找交易本身，需要遍历整个区块链
+func (bc *BlockChain) ValidTransaction(tx Transaction) bool {
+	if tx.IsCoinBase() {
+		return true
+	}
+	everyInputPrevTXs := make(map[string]Transaction)
+	for _, input := range tx.TXInputs {
+		inputTXOne, err := bc.FindTransactionByInputTXid(input.TXID)
+		if err != nil {
+			panic(err)
+		}
+		everyInputPrevTXs[string(input.TXID)] = inputTXOne
+	}
+	return tx.Valid(everyInputPrevTXs)
 }

@@ -2,8 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/gob"
+	"math/big"
+	"strings"
 
 	"fmt"
 )
@@ -78,6 +83,7 @@ type Transaction struct {
 func (tx *Transaction) SetHash() {
 	var buffer bytes.Buffer
 	encoder := gob.NewEncoder(&buffer)
+	//这个hash并没有对全部的数据进行什么处理，只是对数据结构进行了签名,以后可能会优化
 	encoder.Encode(tx)
 	data := buffer.Bytes()
 	idHash := sha256.Sum256(data)
@@ -172,7 +178,7 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *Transactio
 		fmt.Println("没有找到付款人地址对应的钱包，交易失败！")
 		return nil
 	}
-	//privateKey := wallet.PrivateKey
+	privateKey := wallet.PrivateKey
 	publicKey := wallet.PublicKey
 
 	//计算公钥的hash值
@@ -232,6 +238,9 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *Transactio
 		TXOutputs: outputs,
 	}
 	tx.SetHash()
+
+	// 创建交易的时候进行签名
+	bc.SignTransaction(&tx, *privateKey)
 	return &tx
 }
 
@@ -241,21 +250,173 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *Transactio
 // 实现逻辑是
 
 //1. 对TXInputs里面的每一项input都要做签名
-//2. 逻辑是：首先拿到自己的私钥和即将签名的交易
+//2. 逻辑是：首先拿到自己的私钥和即将签名的交易(tx)
 //3. 创建一个当前交易的副本，同时把副本的input的Signature和PublicKey设置为nil
 //4. 循环input所引用的交易体，得到input所引用的output（也就是能够支配的utxo）的公钥hash，把值付给当前交易的PublicKey
 //5. 然后对当前交易整体做hash计算，可以直接调用当前交易生成TX.TXID的SetHash函数，反正是副本怎么弄都行
-//6. 还原当前input的PublicKey的值为nil，以免影响当前交易的其他input
+//6. 还原当前input的PublicKey的值为nil，以免影响当前交易的其他input,同时把用过的交易体的TXID也还原回去
 //7. 把新生成的TX.TXID作为一个临时变量存起来
-//8. 进行椭圆ECDSA签名，得到R和S
-func (tx *Transaction) Sign() {
+//8. 进行椭圆ECDSA签名，得到R和S，保存到当前交易的input的签名里面
+/**
+@param privateKey
+@param everyInputPrevTX 每一个input引用的output的交易体，这是output所在的交易体
+*/
+func (tx *Transaction) Sign(privateKey ecdsa.PrivateKey, everyInputPrevTXs map[string]Transaction) {
+	//这里是签名逻辑
+	if tx.IsCoinBase() {
+		return
+	}
+	copyCurrentTX := tx.CopyTransactionBelongSign()
+
+	for i, input := range copyCurrentTX.TXInputs {
+		inputPrevTXOne := everyInputPrevTXs[string(input.TXID)]
+		if len(inputPrevTXOne.TXID) == 0 {
+			panic("引用的交易无效")
+		}
+		//4. 循环input所引用的交易体，得到input所引用的output（也就是能够支配的utxo）的公钥hash，把值付给当前交易的PublicKey
+		//input.VoutIndex存的是当前input所引用的交易的第几个output（utxo）
+		//要是不嫌麻烦，可以再次遍历一遍
+		copyCurrentTX.TXInputs[i].PublicKey = inputPrevTXOne.TXOutputs[input.VoutIndex].ScriptPubKeyHash
+		//然后对当前交易整体做hash计算，可以直接调用当前交易生成TX.TXID的SetHash函数，反正是副本怎么弄都行
+		copyCurrentTX.SetHash()
+		//还原当前input的PublicKey的值为nil，以免影响当前交易的其他input,同时把用过的交易体的TXID也还原回去
+		copyCurrentTX.TXInputs[i].PublicKey = nil
+		//把新生成的TX.TXID作为一个临时变量存起来
+		tmpSignatureData := copyCurrentTX.TXID
+		//还原交易体的TXID
+		copyCurrentTX.TXID = tx.TXID
+
+		//进行椭圆ECDSA签名，得到R和S，保存到当前交易的input的签名里面
+		r, s, err := ecdsa.Sign(rand.Reader, &privateKey, tmpSignatureData)
+		if err != nil {
+			panic(err)
+		}
+		tx.TXInputs[i].Signature = append(r.Bytes(), s.Bytes()...)
+	}
 
 }
 
 //创建副本的函数（同时把副本的input的Signature和PublicKey设置为nil）
 func (tx *Transaction) CopyTransactionBelongSign() Transaction {
-	return *tx
+	var inputs []TXInput
+	var outputs []TXOutput
+	for _, input := range tx.TXInputs {
+		inputs = append(inputs, TXInput{
+			TXID:      input.TXID,
+			VoutIndex: input.VoutIndex,
+			Signature: nil,
+			PublicKey: nil,
+		})
+	}
+	for _, output := range tx.TXOutputs {
+		outputs = append(outputs, TXOutput{
+			Value:            output.Value,
+			ScriptPubKeyHash: output.ScriptPubKeyHash,
+		})
+	}
+	//for i, _ := range srcTransaction.TXInputs {
+	//	srcTransaction.TXInputs[i].Signature = nil
+	//	srcTransaction.TXInputs[i].PublicKey = nil
+	//}
+	return Transaction{
+		TXID:      tx.TXID,
+		TXInputs:  inputs,
+		TXOutputs: outputs,
+	}
 }
 
-//校验核心
-func (tx *Transaction) Valid() {}
+//校验核心验证每一个交易
+//由于交易中已经存储了 数字签名 和 公钥 ，所以只需要将引用的交易传递进来，为了获取引用输出的公钥哈希
+//分析校验：
+//所需要的数据：公钥，数据(txCopy，生成哈希), 签名
+//我们要对每一个签名过得input进行校验
+//1. 得到想要签名的数据，使用拷贝函数，同时把拷贝的副本的，得到签名r和s的逻辑和签名是一样的，只是这里不进行后续的操作了
+//详细见Sign函数，再得到r和s之后，后面才会不一样
+//2. 因为前面input的PublicKey的值从nil->自己的所属的output的PublicKeyHash->nil,相当于最后还是nil，
+//所以这里从最原理的交易的input里面重新赋值一份，是为了拿到XY极坐标
+//3.通过极坐标XY还原出来公钥,通过input的Signature拆分出来R和S
+
+//4. 进行验证
+func (tx *Transaction) Valid(everyInputPrevTXs map[string]Transaction) bool {
+	if tx.IsCoinBase() {
+		return true
+	}
+	//1. 得到想要签名的数据，使用拷贝函数，同时把拷贝的副本的，得到签名r和s的逻辑和签名是一样的，只是这里不进行后续的操作了
+	//详细见Sign函数，再得到r和s之后，后面才会不一样
+	copyCurrentTX := tx.CopyTransactionBelongSign()
+	for i, input := range copyCurrentTX.TXInputs {
+		inputPrevTXOne := everyInputPrevTXs[string(input.TXID)]
+		if len(inputPrevTXOne.TXID) == 0 {
+			panic("引用的交易无效")
+		}
+		//=====
+		//4. 循环input所引用的交易体，得到input所引用的output（也就是能够支配的utxo）的公钥hash，把值付给当前交易的PublicKey
+		//input.VoutIndex存的是当前input所引用的交易的第几个output（utxo）
+		//要是不嫌麻烦，可以再次遍历一遍
+		copyCurrentTX.TXInputs[i].PublicKey = inputPrevTXOne.TXOutputs[input.VoutIndex].ScriptPubKeyHash
+		//然后对当前交易整体做hash计算，可以直接调用当前交易生成TX.TXID的SetHash函数，反正是副本怎么弄都行
+		copyCurrentTX.SetHash()
+		//还原当前input的PublicKey的值为nil，以免影响当前交易的其他input,同时把用过的交易体的TXID也还原回去
+		copyCurrentTX.TXInputs[i].PublicKey = nil
+		//把新生成的TX.TXID作为一个临时变量存起来
+		tmpSignature := copyCurrentTX.TXID
+		//还原交易体的TXID
+		copyCurrentTX.TXID = tx.TXID
+		//====
+		//拿到三个数据
+		//1. input存储的公钥XY
+		//inputPublicKey := input.PublicKey // 这个input并不是正确的input
+		inputPublicKey := tx.TXInputs[i].PublicKey
+		//2. 本次的签名，重签一边，也就是数据copyCurrentTX.TXID，这个值也就是input的签名信息，只是这里没有赋值给当前的input的Signature
+		signatureAgainData := tmpSignature
+		//3. input存储的签名
+		//inputSignature := input.Signature // 这个input并不是正确的input
+		inputSignature := tx.TXInputs[i].Signature
+
+		//3.通过极坐标XY还原出来公钥,通过input的Signature拆分出来R和S
+		var X, Y, R, S big.Int = big.Int{}, big.Int{}, big.Int{}, big.Int{}
+		X.SetBytes(inputPublicKey[:len(inputPublicKey)/2])
+		Y.SetBytes(inputPublicKey[len(inputPublicKey)/2:])
+
+		R.SetBytes(inputSignature[:len(inputSignature)/2])
+		S.SetBytes(inputSignature[len(inputSignature)/2:])
+
+		//还原公钥
+		publicKeyOrigin := ecdsa.PublicKey{
+			Curve: elliptic.P256(),
+			X:     &X,
+			Y:     &Y,
+		}
+
+		//4. 进行验证
+		result := ecdsa.Verify(&publicKeyOrigin, signatureAgainData, &R, &S)
+
+		if !result {
+			return result
+		}
+	}
+	return true
+}
+
+func (tx Transaction) String() string {
+	var lines []string
+
+	lines = append(lines, fmt.Sprintf("--- Transaction %x:", tx.TXID))
+
+	for i, input := range tx.TXInputs {
+
+		lines = append(lines, fmt.Sprintf("     Input %d:", i))
+		lines = append(lines, fmt.Sprintf("       TXID:      %x", input.TXID))
+		lines = append(lines, fmt.Sprintf("       Out:       %d", input.VoutIndex))
+		lines = append(lines, fmt.Sprintf("       Signature: %x", input.Signature))
+		lines = append(lines, fmt.Sprintf("       PubKey:    %x", input.PublicKey))
+	}
+
+	for i, output := range tx.TXOutputs {
+		lines = append(lines, fmt.Sprintf("     Output %d:", i))
+		lines = append(lines, fmt.Sprintf("       Value:  %f", output.Value))
+		lines = append(lines, fmt.Sprintf("       Script: %x", output.ScriptPubKeyHash))
+	}
+
+	return strings.Join(lines, "\n")
+}

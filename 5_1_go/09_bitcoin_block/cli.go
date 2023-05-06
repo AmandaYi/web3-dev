@@ -15,7 +15,7 @@ const Usage = `
 	getBalance --address "address"
 	send FROM TO AMOUNT MINER "DATA"
 	createWallet "创建一个钱包"
-	listAddress "listAddress"
+	listAddress "list wallet in walletWrapper "
 `
 
 func (cli *CLI) Run() {
