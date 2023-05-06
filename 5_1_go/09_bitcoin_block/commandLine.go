@@ -18,7 +18,7 @@ func (c *CLI) PrintBlockChain() {
 		fmt.Printf("随机数 : %d\n", blockCore.Nonce)
 		fmt.Printf("当前区块哈希值: %x\n", blockCore.Hash)
 		//fmt.Printf("区块数据 :%s\n", blockCore.Data)
-		fmt.Printf("区块数据 :%s\n", blockCore.Transactions[0].TXInputs[0].ScriptSig)
+		//fmt.Printf("区块数据 :%s\n", blockCore.Transactions[0].TXInputs[0].ScriptSig)
 		if len(blockCore.PreHash) == 0 {
 			fmt.Printf("区块链遍历结束！")
 			break
@@ -27,7 +27,23 @@ func (c *CLI) PrintBlockChain() {
 }
 
 func (c *CLI) GetBalance(address string) {
-	utxos := c.BC.FindUTXOs(address)
+	if !IsValidAddress(address) {
+		fmt.Printf("不是合法有效的地址: %s \n", address)
+		return
+	}
+	//获取余额
+	//获取余额需要指定地址，通过遍历整个账本，从而找到这个地址可用的utxo，为此我们要做两件事：
+	//1.  校验地址的有效性
+	//传递过来的地址有可能是无效的，无效的地址直接返回即可。
+	//2.  逆推出公钥哈希
+	//并不是所有的地址都是本地生成的，有可能是别人的地址，所以我们需要逆推而不是打开钱包去
+	// 修改交易结构->遍历账本->调用FindUTXOs函数
+
+	//这里传入的是随机一个地址，去获取余额，因此，需要逆推到公钥，而不是找钱包拿公钥，因为这个地址很可能就不是自己的
+	publicKeyHash := GetPublicKeyHashFromAddress(address)
+
+	//utxos := c.BC.FindUTXOs(address)
+	utxos := c.BC.FindUTXOs(publicKeyHash)
 	var total float64
 	for _, utxo := range utxos {
 		total += utxo.Value
@@ -36,6 +52,18 @@ func (c *CLI) GetBalance(address string) {
 }
 
 func (c *CLI) Send(from string, to string, amount float64, miner string, data string) {
+	if !IsValidAddress(from) {
+		fmt.Printf("不是合法有效的地址: %s \n", from)
+		return
+	}
+	if !IsValidAddress(to) {
+		fmt.Printf("不是合法有效的地址: %s \n", to)
+		return
+	}
+	if !IsValidAddress(miner) {
+		fmt.Printf("不是合法有效的地址: %s \n", miner)
+		return
+	}
 	fmt.Printf("from: %s, to: %s, amount: %f, miner: %s, data: %s\n", from, to, amount, miner, data)
 
 	//创建普通交易

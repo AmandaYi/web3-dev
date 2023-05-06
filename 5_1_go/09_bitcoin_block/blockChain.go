@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/boltdb/bolt"
 )
@@ -43,6 +44,10 @@ func (b *BlockChain) PrintAll() {
 
 // 初始化区块链 - 链表
 func NewBlockChain(address string) *BlockChain {
+	if !IsValidAddress(address) {
+		fmt.Printf("不是合法有效的地址: %s \n", address)
+		return nil
+	}
 	//var bc BlockChain
 	//// 初始化第一个区块
 	//const genesisInfo string = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
@@ -161,12 +166,13 @@ func (b *BlockChain) AddBlock(tsx []*Transaction) {
 }
 
 //返回指定地址能够⽀配的utxo所在的交易的集合
-func (bc *BlockChain) FindUTXOs(address string) []TXOutput {
+func (bc *BlockChain) FindUTXOs(publicKeyHash []byte) []TXOutput {
 	var UTXO []TXOutput
-	txs := bc.FindTransactions(address)
+	txs := bc.FindTransactions(publicKeyHash)
 	for _, tx := range txs {
 		for _, output := range tx.TXOutputs {
-			if output.ScriptPubKey == address {
+			//if output.ScriptPubKey == address {
+			if bytes.Equal(output.ScriptPubKeyHash, publicKeyHash) {
 				UTXO = append(UTXO, output)
 			}
 		}
@@ -175,88 +181,18 @@ func (bc *BlockChain) FindUTXOs(address string) []TXOutput {
 	return UTXO
 }
 
-//返回指定地址能够⽀配的utxo所在的交易的集合，原始优化前的备份
-func (bc *BlockChain) FindUTXOsBackUp(address string) []TXOutput {
-	var UTXO []TXOutput
-	//我们定义一个map来保存消费过的output，key是这个output的交易id，value是这个交易中索引的数组
-	//map[交易id][]int64
-	spentOutputs := make(map[string][]int64)
-
-	//创建迭代器
-	it := NewBlockChainIterator(bc)
-	//1 遍历区块
-	for {
-		block := it.Next()
-		//2 遍历交易
-		for txIndex, tx := range block.Transactions {
-			fmt.Printf("current 交易id: %x\n", tx.TXID)
-
-		OUTPUT:
-			//3 遍历output，找到和自己相关的utxo（在添加utxo之前检查一下是否已经消耗过了）
-			// currentOutputIndex 代表来到了上一个个区块
-			for currentOutputIndex, output := range tx.TXOutputs {
-				//当前交易的output
-				//在这类做一个过滤，把所有已经消耗过的output和即将添加的output进行对比
-				//如果相同，那么就不添加，否则才会添加
-				//如果当前交易的id存在于我们已经标识的map，那么说明这个交易里面有消耗过的output
-
-				//spentOutputs是上一次循环根据上一次循环中的交易体关联查询到的这次要用的outputs
-				//这样子spentOutputs和currentOutputIndex就处于一个交易体里面了
-				if spentOutputs[string(tx.TXID)] != nil { // 代表的是当前交易区块是否含有消耗过的output，第一层拦截，如果没有的话，就无须做任何的判断
-					for _, preBlockOutputIndex := range spentOutputs[string(tx.TXID)] {
-						if preBlockOutputIndex == int64(currentOutputIndex) {
-							continue OUTPUT
-						}
-					}
-				}
-
-				//正常流程
-				//如果这个output和我们的目标的地址相同，那么就追加到output数组里面
-				if output.ScriptPubKey == address {
-					UTXO = append(UTXO, output)
-				}
-			}
-
-			//如果当前交易是挖矿交易的话，那么不做遍历，直接跳过
-			if tx.IsCoinBase() {
-				fmt.Printf("第%d遍交易\n", txIndex+1)
-				continue
-			}
-			//否则不是挖矿交易的话，那么就是处理每个交易里面的input
-			//遍历input，找到自己各个input对应的上一个区块的output，把消耗过标记出来
-			//判断一下每一个input的对应的上一个区块output的sig签名是不是同一个人，是的话才是这个人消耗过的output
-			for _, input := range tx.TXInputs {
-				if input.ScriptSig == address {
-					//大坑，tagOutList生成一个临时变量，并不是对spentOutputs的引用，
-					//造成了上面的TXOutputs处理逻辑每次都是循环的空数据，无法做到有效的过滤已经消耗过的output
-
-					//tagOutputList := spentOutputs[string(input.TXID)]
-					////input.VoutIndex是当前input对应的上一个区块的output所在的 交易体的对应的output索引
-					//tagOutputList = append(tagOutputList, input.VoutIndex)
-					spentOutputs[string(input.TXID)] = append(spentOutputs[string(input.TXID)], input.VoutIndex)
-				}
-			}
-		}
-		if len(block.PreHash) == 0 {
-			fmt.Println("当前区块链遍历完成")
-			break
-		}
-	}
-
-	return UTXO
-}
-
-// FindNeedUTXOs ，
-func (bc *BlockChain) FindNeedUTXOs(from string, amount float64) (map[string][]uint64, float64) {
+// 返回指定地址能够⽀配的utxo所在的交易的集合
+func (bc *BlockChain) FindNeedUTXOs(fromPublicKeyHash []byte, amount float64) (map[string][]uint64, float64) {
 	utxos := make(map[string][]uint64)
 	var calc float64
 
 	// 找到需要的utxo即可，逻辑接近于找全部交易
-	txs := bc.FindTransactions(from)
+	txs := bc.FindTransactions(fromPublicKeyHash)
 
 	for _, tx := range txs {
 		for currentTXOutputIndex, output := range tx.TXOutputs {
-			if output.ScriptPubKey == from {
+			//拿着自己的公钥hash，看是否等于自己将要消耗的output的公钥hash（锁定脚本）
+			if bytes.Equal(output.ScriptPubKeyHash, fromPublicKeyHash) {
 				if calc < amount {
 					utxos[string(tx.TXID)] = append(utxos[string(tx.TXID)], uint64(currentTXOutputIndex))
 					calc += output.Value
@@ -274,65 +210,8 @@ func (bc *BlockChain) FindNeedUTXOs(from string, amount float64) (map[string][]u
 	return utxos, calc
 }
 
-// FindNeedUTXOs ，原始优化前的备份
-func (bc *BlockChain) FindNeedUTXOsBackUp(from string, amount float64) (map[string][]uint64, float64) {
-	utxos := make(map[string][]uint64)
-	var calc float64
-	spentOutput := make(map[string][]uint64)
-	// 找到需要的utxo即可，逻辑接近于找全部交易
-
-	it := NewBlockChainIterator(bc)
-	for {
-		block := it.Next()
-		for _, tx := range block.Transactions {
-
-		OUTPUT:
-			//遍历每一个交易的output
-			for outputIndex, output := range tx.TXOutputs {
-				if spentOutput[string(tx.TXID)] != nil {
-					for _, spentOutputItem := range spentOutput[string(tx.TXID)] {
-						if uint64(outputIndex) == spentOutputItem {
-							continue OUTPUT
-						}
-					}
-				}
-				if output.ScriptPubKey == from {
-					//把需要的数据拿出来
-					if calc < amount {
-						utxos[string(tx.TXID)] = append(utxos[string(tx.TXID)], uint64(outputIndex))
-						calc += output.Value
-						if calc >= amount {
-							return utxos, calc
-						}
-					} else {
-						fmt.Println("余额不足")
-						return utxos, calc
-					}
-				}
-
-			}
-			//如果是挖矿交易的话，就没有input的事情了
-			if tx.IsCoinBase() {
-				continue
-			}
-			//过滤消耗过的数据
-			for _, input := range tx.TXInputs {
-				if input.ScriptSig == from {
-					spentOutput[string(input.TXID)] = append(spentOutput[string(input.TXID)], uint64(input.VoutIndex))
-				}
-			}
-		}
-		if len(block.PreHash) == 0 {
-			fmt.Println("区块链遍历完成")
-			break
-		}
-	}
-
-	return utxos, calc
-}
-
 //使用FindTransaction优化找utxo的过程
-func (bc *BlockChain) FindTransactions(address string) []*Transaction {
+func (bc *BlockChain) FindTransactions(fromPublicKeyHash []byte) []*Transaction {
 	var txs []*Transaction
 
 	//======
@@ -372,7 +251,8 @@ func (bc *BlockChain) FindTransactions(address string) []*Transaction {
 				//正常流程
 				//如果这个output和我们的目标的地址相同，那么就追加到output数组里面
 				//但是优化了一下代码，返回全部的含有带有当前地址的交易体返回出去，然后让调用的函数自行处理，外边的函数需要过滤地址
-				if output.ScriptPubKey == address {
+				// if output.ScriptPubKey == address {
+				if bytes.Equal(output.ScriptPubKeyHash, fromPublicKeyHash) {
 					//UTXO = append(UTXO, output)
 					txs = append(txs, tx)
 				}
@@ -390,7 +270,8 @@ func (bc *BlockChain) FindTransactions(address string) []*Transaction {
 			//遍历input，找到自己各个input对应的上一个区块的output，把消耗过标记出来
 			//判断一下每一个input的对应的上一个区块output的sig签名是不是同一个人，是的话才是这个人消耗过的output
 			for _, input := range tx.TXInputs {
-				if input.ScriptSig == address {
+				//if input.ScriptSig == address {
+				if bytes.Equal(HashPublicKey(input.PublicKey), fromPublicKeyHash) {
 					//大坑，tagOutList生成一个临时变量，并不是对spentOutputs的引用，
 					//造成了上面的TXOutputs处理逻辑每次都是循环的空数据，无法做到有效的过滤已经消耗过的output
 

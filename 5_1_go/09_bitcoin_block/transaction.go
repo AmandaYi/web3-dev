@@ -21,7 +21,14 @@ type TXInput struct {
 	// 引用output的索引值
 	VoutIndex int64
 	// 解锁脚本
-	ScriptSig string
+	//ScriptSig string
+
+	//签名, 真正的签名，由r，s拼接的字节流，其中r和s是长度相等的
+	Signature []byte
+
+	// 公钥，这里存储的公钥，并不是最原始的公钥，而是存储极坐标X和Y的字节流，在校验时候可以拆开得到公钥
+	// 这里是公钥，不是哈希，也不是地址，是付款人的公钥
+	PublicKey []byte
 }
 
 //交易输出（TXOutput）
@@ -33,7 +40,28 @@ type TXOutput struct {
 	// 接受的金额
 	Value float64
 	// 锁定脚本
-	ScriptPubKey string
+	//ScriptPubKey string
+
+	//收款方的公钥哈希，是公钥的哈希，不是地址
+	ScriptPubKeyHash []byte
+}
+
+// 在调用输出的时候，一定是知道了收款人的地址，因此可以拿收款人的地址还原出来收款人的公钥HASH
+func (output *TXOutput) Lock(address string) {
+	hash := GetPublicKeyHashFromAddress(address)
+	output.ScriptPubKeyHash = hash
+}
+
+// 使用方法创建交易输出，提高封装性
+//创建交易的时候，能拿到金额和收款人的地址
+func NewTxOutput(value float64, address string) TXOutput {
+	output := TXOutput{
+		Value:            value,
+		ScriptPubKeyHash: nil,
+	}
+	// 设置锁定脚本,也就是设置收款人的公钥HASH的值
+	output.Lock(address)
+	return output
 }
 
 //区块中的交易结构，该交易结构自我hash生成MerKleRoot值
@@ -65,18 +93,21 @@ func NewCoinBaseTX(address string, data string) *Transaction {
 	var tx Transaction
 	//唯一输入
 	//⽐特币系统，对于这个input的id填0，对索引填0xffff，data由矿⼯填写，⼀般填所在矿池的名字
-	var input TXInput = TXInput{
+	input := TXInput{
 		TXID:      []byte{},
 		VoutIndex: -1,
-		ScriptSig: data,
+		Signature: nil,
+		PublicKey: []byte(data), // 这里是挖矿交易，因此没有所谓的公钥，一般让挖矿者设置为自己的矿池的名字
 	}
 
 	//唯一输出
-	var output TXOutput = TXOutput{
-		Value:        reward,
-		ScriptPubKey: address,
-	}
+	//var output TXOutput = TXOutput{
+	//	Value:        reward,
+	//	//ScriptPubKey: address,
+	//}
+	output := NewTxOutput(reward, address)
 
+	//对于挖矿交易来说，只有一个input和一output
 	tx.TXInputs = []TXInput{input}
 	tx.TXOutputs = []TXOutput{output}
 
@@ -84,6 +115,7 @@ func NewCoinBaseTX(address string, data string) *Transaction {
 	return &tx
 }
 
+/**
 // 解锁脚本，解锁脚本是为了找到自己的余额，也就是utxo
 //解锁脚本是检验input是否可以使⽤由某个地址锁定的utxo，所以对于解锁脚本来说，是外部提供锁定
 //信息，我去检查⼀下能否解开它。
@@ -100,7 +132,7 @@ func (input *TXInput) CanUnlockUTXOWith(unlockData string) bool {
 func (output *TXOutput) CanBeUnlockedWith(unlockData string) bool {
 	return output.ScriptPubKey == unlockData
 }
-
+*/
 // 判断是不是挖矿交易
 func (tx *Transaction) IsCoinBase() bool {
 	// 条件是，只有一个input，且这一个input的交易id为nil，且这一个input的 引用output的索引值（VoutIndex）为-1
@@ -127,12 +159,34 @@ func (tx *Transaction) IsCoinBase() bool {
 //如果自己的utxo总额少于了需要付的交易金额，那么不去处理，并给出提示
 //如果自己的utxo总额超过了需要付的交易金额，那么就给自己也创造一个output给自己找零
 func NewTransaction(from, to string, amount float64, bc *BlockChain) *Transaction {
+	//我们创建新的交易一定是要使用钱包里面的公钥私钥，所以整个步骤如下：
+	//1.  打开钱包，根据创建人的address找到对应的钱包（银行卡）
+	//2.  查找可用的utxo，注意此时传递的不再是地址，而是地址的公钥哈希：pubKeyHash
+	//3.  创建输入
+	//4.  创建输出（付款，找零）
+	//5.  使用私钥对交易进行签名
+	//通过付款人地址->找到钱包->找到公钥+私钥
+	ww := NewWalletWrapper()
+	wallet := ww.WalletMap[from]
+	if wallet == nil {
+		fmt.Println("没有找到付款人地址对应的钱包，交易失败！")
+		return nil
+	}
+	//privateKey := wallet.PrivateKey
+	publicKey := wallet.PublicKey
+
+	//计算公钥的hash值
+	publicKeyHash := HashPublicKey(publicKey)
+
 	var tx Transaction
 	var inputs []TXInput
 	var outputs []TXOutput
 
 	//找到需要的合理的utxos map[string][]uint64
-	utxos, utxoSumAmount := bc.FindNeedUTXOs(from, amount)
+	//utxos, utxoSumAmount := bc.FindNeedUTXOs(from, amount)
+
+	utxos, utxoSumAmount := bc.FindNeedUTXOs(publicKeyHash, amount)
+
 	//如果自己的utxo的总额比本次需要付的交易金额要小，就不往下走了
 	if utxoSumAmount < amount {
 		fmt.Printf("余额不足，当前余额%f,付账总额为%f\n", utxoSumAmount, amount)
@@ -146,24 +200,29 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *Transactio
 			input := TXInput{
 				TXID:      []byte(TXid),
 				VoutIndex: int64(VoutIndex),
-				ScriptSig: from,
+				//ScriptSig: from,
+				Signature: nil,
+				PublicKey: publicKey,
 			}
 			inputs = append(inputs, input)
 		}
 	}
 
 	//创建交易的输出
-	output := TXOutput{
-		Value:        amount,
-		ScriptPubKey: to,
-	}
+	//output := TXOutput{
+	//	Value:        amount,
+	//	ScriptPubKey: to,
+	//}
+	output := NewTxOutput(amount, to)
+
 	outputs = append(outputs, output)
 	//如果自己的utxo超过了需要支付的金额，那么就把多出去的零钱转给自己，也就是多写一个output
 	if utxoSumAmount > amount {
-		output := TXOutput{
-			Value:        utxoSumAmount - amount,
-			ScriptPubKey: from, // 转给自己,锁定脚本也用自己的公钥
-		}
+		//output := TXOutput{
+		//	Value:        utxoSumAmount - amount,
+		//	ScriptPubKey: from, // 转给自己,锁定脚本也用自己的公钥
+		//}
+		output := NewTxOutput(utxoSumAmount-amount, from)
 		outputs = append(outputs, output)
 	}
 
@@ -175,3 +234,28 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *Transactio
 	tx.SetHash()
 	return &tx
 }
+
+// 签名核心
+//前提，要用私钥，同时根据交易的input里面的交易id，找到所有的引用的交易体
+
+// 实现逻辑是
+
+//1. 对TXInputs里面的每一项input都要做签名
+//2. 逻辑是：首先拿到自己的私钥和即将签名的交易
+//3. 创建一个当前交易的副本，同时把副本的input的Signature和PublicKey设置为nil
+//4. 循环input所引用的交易体，得到input所引用的output（也就是能够支配的utxo）的公钥hash，把值付给当前交易的PublicKey
+//5. 然后对当前交易整体做hash计算，可以直接调用当前交易生成TX.TXID的SetHash函数，反正是副本怎么弄都行
+//6. 还原当前input的PublicKey的值为nil，以免影响当前交易的其他input
+//7. 把新生成的TX.TXID作为一个临时变量存起来
+//8. 进行椭圆ECDSA签名，得到R和S
+func (tx *Transaction) Sign() {
+
+}
+
+//创建副本的函数（同时把副本的input的Signature和PublicKey设置为nil）
+func (tx *Transaction) CopyTransactionBelongSign() Transaction {
+	return *tx
+}
+
+//校验核心
+func (tx *Transaction) Valid() {}
