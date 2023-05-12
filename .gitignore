@@ -5,3 +5,4 @@ test
 **/go.sum
 mod_project.lnk
 **/block
+**/.deps
