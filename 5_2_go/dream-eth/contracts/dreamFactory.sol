@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: MIT
-import "./supportDreamMap.sol";
+
 pragma solidity >=0.8.0 <0.9.0;
+// import "./supportDreamMap.sol";
+// import "./dream.sol";
+ 
+contract SupportDreamMap {
+    // 这个合约用来保存，每个在网络中的，在这个平台中，都参与了什么Dream众筹项目
+    mapping(address => address[]) supportMapWithDreamAddress;
+
+    function getValue(
+        address personAddress
+    ) public view returns (address[] memory) {
+        return supportMapWithDreamAddress[personAddress];
+    }
+
+    function setValue(address personAddress, address dreamAddress) public {
+        supportMapWithDreamAddress[personAddress].push(dreamAddress);
+    }
+}
 
 contract DreamContract {
     // 项目发起人
@@ -237,5 +254,61 @@ contract DreamContract {
         require(currentIndex > -1, unicode"不要传递不存在的商品名称");
 
         return (shopPayList[uint(currentIndex)], agreePersonMapList[_shopName]);
+    }
+}
+ 
+contract DreamFactory {
+    // 平台提供者
+    address factoryCreator;
+    // 使用当前平台产生的众筹项目
+    address[] productDreamList;
+    // 使用某个账户发起的所有众筹项目的地址
+    mapping(address => address[]) productDreamMap;
+
+// 用来维护一个参与Dream的人，以及人都参与了什么项目投资的map
+    SupportDreamMap supportDreamMap;
+    constructor() {
+        factoryCreator = msg.sender;
+    }
+
+    // 通过平台创建一个梦想计划
+    //     string memory _dreamName,
+    //     uint256 _targetAmount,
+    //     uint256 _limitSupportAmount,
+    //     uint256 _sumTime
+    function createDream(
+        string memory _dreamName,
+        uint _targetAmount,
+        uint256 _limitSupportAmount,
+        uint256 _sumTime
+    ) public returns(DreamContract) {
+        DreamContract dream = new DreamContract(
+            _dreamName,
+            _targetAmount,
+            _limitSupportAmount,
+            _sumTime,
+            msg.sender,
+            supportDreamMap
+        );
+      
+        productDreamList.push(address(dream));
+
+        productDreamMap[msg.sender].push(address(dream));
+        return dream;
+    }
+
+    // 返回当前平台的所有众筹项目地址
+    function getProductDreamList() public view returns (address[] memory) {
+        return productDreamList;
+    }
+
+    // 返回某个账户发起的所有众筹项目地址
+    function getCreateDreamListByPersonAddress() public view returns (address[] memory) {
+        return productDreamMap[msg.sender];
+    }
+
+    // 返回某个账户所投资的全部众筹项目地址
+    function getSupportDreamListByPersonAddress() public payable returns(address[] memory  ) {
+        return supportDreamMap.getValue(msg.sender);
     }
 }

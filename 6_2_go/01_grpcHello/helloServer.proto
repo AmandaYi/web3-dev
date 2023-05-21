@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+//新版本的proto编译器需要指明这个
+option go_package = "./;pb";
+
+service HelloServer {
+  rpc SayHello(HelloRequest) returns(HelloReplay) {}
+  rpc GetHelloMsg(HelloReplay) returns(HelloMessage) {}
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReplay {
+  string message = 1;
+}
+
+message HelloMessage {
+  string msg = 1;
+}
+
+message Order {
+  string orderId = 1;
+  double amount = 2;
+}
+message OrderList {
+  repeated Order orderList = 1;
+}
+
+message UserInfoReq{
+  string name = 1;
+}
+
+message UserInfoRes {
+  string name = 1;
+  OrderList orderList = 2 ;
+}
+service OrderServer {
+  //  rpc GetOrderInfo(Order) returns(Order) {}
+  rpc GetOrderList(Order) returns(OrderList) {}
+  rpc UserInfoDesc(UserInfoReq) returns (UserInfoRes){}
+}

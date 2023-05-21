@@ -1,0 +1,12 @@
+version: '2'
+services:
+  web1:
+    image: nginx
+    ports:
+      - "9999:80"
+    container_name: nginx-web1
+  web2:
+    image: nginx
+    ports:
+      - "8888:80"
+    container_name: nginx-web2

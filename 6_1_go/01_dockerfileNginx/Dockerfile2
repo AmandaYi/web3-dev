@@ -1,0 +1,16 @@
+# 构建一个基于ubuntu的docker定制镜像
+# 基础镜像
+FROM ubuntu
+# 镜像作者
+MAINTAINER zzy
+# 执行命令
+ADD ["sources.list","/etc/apt/sources.list"]
+RUN apt-get clean
+RUN apt-get update
+RUN apt-get install nginx -y
+#触发器
+ONBUILD COPY ["index.html","/var/www/html/"]
+# 对外端口
+EXPOSE 80
+#运行时默认命令
+ENTRYPOINT ["/usr/sbin/nginx","-g","daemon off;"]
