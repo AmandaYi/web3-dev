@@ -1,0 +1,15 @@
+type (
+	OrderReq {
+		Id string `path:"id"`
+	}
+
+	OrderReplay {
+		Id     string  `json:"id"`
+		Name   string  `json:"name"`
+		Amount float64 `json:"amount"`
+	}
+)
+service order {
+	@handler getOrder
+	get /api/order/get/:id (OrderReq) returns (OrderReplay)
+}
